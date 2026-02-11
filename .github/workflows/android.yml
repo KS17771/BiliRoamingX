@@ -1,0 +1,61 @@
+name: CI Build BiliRoamingX
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+  workflow_dispatch: # 关键：添加此行可以在 GitHub 网页上手动点击 "Run workflow"
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: 'recursive'
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Cache gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', 'gradle/*.versions.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Retrieve version
+        run: |
+          version=`awk -F "=" '$1 == "version" {print $2}' gradle.properties`
+          commit_count=`git rev-list HEAD --count`
+          version="${version}.r${commit_count}"
+          echo "VERSION=$version" >> $GITHUB_ENV
+
+      - name: Build Patches and Integrations
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        # 核心修改：使用 assembleRelease 确保生成所有模块的发布包
+        run: ./gradlew --no-daemon -Dorg.gradle.jvmargs=-Xmx2g -Pversion=$VERSION assembleRelease
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: BiliRoamingX-Build-Package-${{ env.VERSION }}
+          # 关键修改：明确指定输出路径，方便你下载关键文件
+          path: |
+            patches/build/libs/*.jar
+            integrations/app/build/outputs/apk/release/*.apk
+            patches/build/outputs/aar/*.aar
